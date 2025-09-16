@@ -21,4 +21,17 @@ storage/framework/sessions/*
 storage/framework/views/*
 storage/logs/*.log
 
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database
+database/database.sqlite
+
 # End of https://www.toptal.com/developers/gitignore/api/laravel

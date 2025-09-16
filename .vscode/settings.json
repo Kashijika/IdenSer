@@ -6,6 +6,18 @@
         "**/storage/logs": true,
         "**/storage/framework/cache": true,
         "**/storage/framework/sessions": true,
-        "**/storage/framework/views": true
+        "**/storage/framework/views": true,
+        "**/.phpunit.cache": true,
+        "**/database/database.sqlite": true
+    },
+    "search.exclude": {
+        "**/vendor": true,
+        "**/node_modules": true,
+        "**/storage": true
+    },
+    "files.watcherExclude": {
+        "**/vendor/**": true,
+        "**/node_modules/**": true,
+        "**/storage/**": true
     }
 }
