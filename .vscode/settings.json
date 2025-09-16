@@ -1,0 +1,11 @@
+{
+    "files.exclude": {
+        "**/vendor": true,
+        "**/node_modules": true,
+        "**/.git": true,
+        "**/storage/logs": true,
+        "**/storage/framework/cache": true,
+        "**/storage/framework/sessions": true,
+        "**/storage/framework/views": true
+    }
+}

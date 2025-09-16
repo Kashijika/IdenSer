@@ -21,27 +21,4 @@ storage/framework/sessions/*
 storage/framework/views/*
 storage/logs/*.log
 
-# WSO2 and security related files
-config/wso2_private.php
-*.pem
-*.crt
-*.key
-*.p12
-*.jks
-
-# Database files
-database/database.sqlite
-*.db
-*.sqlite
-
-# macOS
-.DS_Store
-**/.DS_Store
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
 # End of https://www.toptal.com/developers/gitignore/api/laravel
