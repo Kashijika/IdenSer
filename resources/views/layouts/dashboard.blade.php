@@ -8,7 +8,7 @@
     <title>@yield('title', 'Dashboard') - SWA Media Portal</title>
     
     <!-- Styles -->
-    <link rel="stylesheet" href="{{ asset('css/globals.css') }}">
+    <link rel="stylesheet" href="{{ asset('styles/globals.css') }}">
     
     @stack('styles')
     
