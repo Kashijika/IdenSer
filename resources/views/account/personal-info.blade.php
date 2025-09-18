@@ -1,4 +1,4 @@
-@extends('layouts.account')
+@extends('layouts.dashboard')
 
 @section('title', 'Personal Info - My Account')
 

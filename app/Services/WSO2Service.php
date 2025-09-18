@@ -904,4 +904,313 @@ class WSO2Service
             return collect([]);
         }
     }
+
+    /**
+     * Refresh access token using refresh token
+     */
+    public function refreshAccessToken(string $refreshToken)
+    {
+        try {
+            $response = Http::withoutVerifying()
+                ->asForm()
+                ->post(config('services.wso2.token_url'), [
+                    'grant_type' => 'refresh_token',
+                    'refresh_token' => $refreshToken,
+                    'client_id' => $this->clientId,
+                    'client_secret' => $this->clientSecret,
+                ]);
+
+            if ($response->successful()) {
+                return $response->json();
+            }
+
+            Log::error('Failed to refresh WSO2 token', ['response' => $response->json()]);
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Error refreshing WSO2 token', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Introspect token to check if it's valid
+     */
+    public function introspectToken(string $token): bool
+    {
+        try {
+            $response = Http::withoutVerifying()
+                ->asForm()
+                ->withBasicAuth($this->clientId, $this->clientSecret)
+                ->post($this->baseUrl . '/oauth2/introspect', [
+                    'token' => $token,
+                    'token_type_hint' => 'access_token'
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                return isset($data['active']) && $data['active'] === true;
+            }
+
+            return false;
+        } catch (\Exception $e) {
+            Log::error('Error introspecting token', ['error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * Decode JWT token payload
+     */
+    public function decodeJWT(string $token)
+    {
+        try {
+            $parts = explode('.', $token);
+            if (count($parts) !== 3) {
+                throw new \Exception('Invalid JWT format');
+            }
+
+            $payload = $parts[1];
+            $decoded = base64_decode(str_replace(['-', '_'], ['+', '/'], $payload));
+            
+            return json_decode($decoded, true);
+        } catch (\Exception $e) {
+            Log::error('Error decoding JWT', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Get WSO2 session check URL for cross-app session validation
+     */
+    public function getSessionCheckUrl(): string
+    {
+        return $this->baseUrl . '/oidc/checksession';
+    }
+
+    /**
+     * Get WSO2 logout URL with proper post-logout redirect
+     */
+    public function getLogoutUrl(string $postLogoutRedirectUri = null): string
+    {
+        $logoutUrl = config('services.wso2.logout_url');
+        
+        if ($postLogoutRedirectUri) {
+            $logoutUrl .= '?' . http_build_query([
+                'post_logout_redirect_uri' => $postLogoutRedirectUri,
+                'client_id' => $this->clientId
+            ]);
+        }
+        
+        return $logoutUrl;
+    }
+
+    /**
+     * Perform single logout - revoke tokens and redirect to WSO2 logout
+     */
+    public function performSingleLogout(string $postLogoutRedirectUri = null): array
+    {
+        $wso2Session = session('wso2', []);
+        $accessToken = $wso2Session['access_token'] ?? null;
+        $refreshToken = $wso2Session['refresh_token'] ?? null;
+        $idToken = $wso2Session['id_token'] ?? null;
+
+        // Revoke tokens
+        $tokensRevoked = false;
+        if ($accessToken || $refreshToken) {
+            $tokensRevoked = $this->revokeTokens($accessToken, $refreshToken);
+        }
+
+        // Clear local session
+        session()->flush();
+        session()->regenerate(true);
+
+        // Build logout URL
+        $logoutUrl = $this->getLogoutUrl($postLogoutRedirectUri);
+        
+        // Add id_token_hint for better logout experience
+        if ($idToken) {
+            $logoutUrl .= (strpos($logoutUrl, '?') !== false ? '&' : '?') . 'id_token_hint=' . urlencode($idToken);
+        }
+
+        return [
+            'logout_url' => $logoutUrl,
+            'tokens_revoked' => $tokensRevoked
+        ];
+    }
+
+    /**
+     * Revoke access and refresh tokens
+     */
+    private function revokeTokens(?string $accessToken, ?string $refreshToken): bool
+    {
+        $revokeUrl = $this->baseUrl . '/oauth2/revoke';
+        $success = true;
+
+        try {
+            if ($accessToken) {
+                $response = Http::withoutVerifying()
+                    ->asForm()
+                    ->withBasicAuth($this->clientId, $this->clientSecret)
+                    ->post($revokeUrl, [
+                        'token' => $accessToken,
+                        'token_type_hint' => 'access_token'
+                    ]);
+
+                if (!$response->successful()) {
+                    $success = false;
+                    Log::warning('Failed to revoke access token');
+                }
+            }
+
+            if ($refreshToken) {
+                $response = Http::withoutVerifying()
+                    ->asForm()
+                    ->withBasicAuth($this->clientId, $this->clientSecret)
+                    ->post($revokeUrl, [
+                        'token' => $refreshToken,
+                        'token_type_hint' => 'refresh_token'
+                    ]);
+
+                if (!$response->successful()) {
+                    $success = false;
+                    Log::warning('Failed to revoke refresh token');
+                }
+            }
+
+            return $success;
+        } catch (\Exception $e) {
+            Log::error('Error revoking tokens', ['error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * Check if access token is valid and not revoked
+     */
+    public function isAccessTokenValid($token = null)
+    {
+        if (!$token) {
+            $wso2Session = session('wso2', []);
+            $token = $wso2Session['access_token'] ?? null;
+        }
+
+        if (!$token) {
+            Log::info('No access token available for validation');
+            return false;
+        }
+
+        try {
+            // Use introspection endpoint to check token validity
+            $introspectUrl = config('services.wso2.base_url') . '/oauth2/introspect';
+            $clientId = config('services.wso2.client_id');
+            $clientSecret = config('services.wso2.client_secret');
+
+            $response = Http::withoutVerifying()
+                ->asForm()
+                ->withBasicAuth($clientId, $clientSecret)
+                ->timeout(5) // Shorter timeout to prevent blocking
+                ->retry(2, 100) // Retry twice with 100ms delay
+                ->post($introspectUrl, [
+                    'token' => $token,
+                    'token_type_hint' => 'access_token'
+                ]);
+
+            if ($response->successful()) {
+                $introspection = $response->json();
+                $isActive = $introspection['active'] ?? false;
+                
+                Log::info('Token introspection result', [
+                    'active' => $isActive,
+                    'exp' => $introspection['exp'] ?? null,
+                    'client_id' => $introspection['client_id'] ?? null
+                ]);
+
+                return $isActive;
+            }
+
+            Log::warning('Token introspection failed', [
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+            
+            // If introspection fails due to server issues, assume token is valid
+            // to prevent disrupting user experience
+            if ($response->status() >= 500) {
+                Log::info('WSO2 server error during introspection, assuming token is valid');
+                return true;
+            }
+            
+            return false;
+
+        } catch (\Exception $e) {
+            Log::error('Token validation error', [
+                'error' => $e->getMessage(),
+                'type' => get_class($e)
+            ]);
+            
+            // Check if this is an HTTP 401 error specifically from introspection endpoint
+            if ($e instanceof \Illuminate\Http\Client\RequestException) {
+                $response = $e->response;
+                if ($response && $response->status() === 401) {
+                    // Parse the response to check if it's from introspection endpoint
+                    $responseBody = $response->json();
+                    
+                    // Check for various invalid token response formats
+                    if (isset($responseBody['error']) && $responseBody['error'] === 'invalid_token') {
+                        Log::info('WSO2 introspection returned invalid_token - token is revoked');
+                        return false;
+                    } elseif (isset($responseBody['active']) && $responseBody['active'] === false) {
+                        Log::info('WSO2 introspection returned active=false - token is revoked');
+                        return false;
+                    } elseif (isset($responseBody['code']) && $responseBody['code'] === 401) {
+                        // WSO2 introspection endpoint returns this format for invalid tokens
+                        Log::info('WSO2 introspection returned 401 code - token is invalid/revoked', [
+                            'description' => $responseBody['description'] ?? 'No description'
+                        ]);
+                        return false;
+                    } else {
+                        Log::info('WSO2 returned 401 but not from introspection endpoint - assuming token valid');
+                    }
+                }
+            }
+            
+            // On other network/timeout errors, assume token is valid to prevent disruption
+            return true;
+        }
+    }
+
+    /**
+     * Validate current session and logout if token is invalid/revoked
+     */
+    public function validateSessionOrLogout()
+    {
+        $wso2Session = session('wso2', []);
+        $accessToken = $wso2Session['access_token'] ?? null;
+
+        if (!$accessToken) {
+            Log::info('No access token in session - clearing session');
+            $this->clearLocalSession();
+            return false;
+        }
+
+        // Check if token is still valid
+        if (!$this->isAccessTokenValid($accessToken)) {
+            Log::info('Access token is invalid or revoked - clearing session');
+            $this->clearLocalSession();
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Clear local session data
+     */
+    private function clearLocalSession()
+    {
+        session()->flush();
+        session()->regenerate(true);
+        session()->put('force_fresh_login', true);
+        session()->put('logout_timestamp', time());
+    }
 }

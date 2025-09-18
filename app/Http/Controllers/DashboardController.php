@@ -324,12 +324,38 @@ class DashboardController extends Controller
             'top_performer_change' => $totalQuery->orderBy('change_percent', 'desc')->value('change_percent') ?: 0,
         ];
 
-        // Check if this is an AJAX request
-        if ($request->ajax() || $request->has('ajax')) {
-            return view('dashboard.trading-data', compact('tradingData', 'hasFullAccess', 'user', 'stats'))->render();
+        // Generate chart data for the view
+        $rawChartData = TradingData::getChartData();
+        $chartData = [
+            'price_points' => [],
+            'labels' => [],
+            'symbols' => [],
+            'volume_data' => []
+        ];
+
+        if ($rawChartData->isNotEmpty()) {
+            foreach ($rawChartData->take(8) as $index => $data) {
+                $chartData['price_points'][] = [
+                    'value' => (float) $data->price,
+                    'symbol' => $data->symbol,
+                    'date' => $data->trade_date->format('Y-m-d')
+                ];
+                $chartData['labels'][] = $data->symbol;
+                $chartData['symbols'][] = $data->symbol;
+                $chartData['volume_data'][] = [
+                    'symbol' => $data->symbol,
+                    'volume' => (int) $data->volume,
+                    'date' => $data->trade_date->format('Y-m-d')
+                ];
+            }
         }
 
-        return view('dashboard.trading-data', compact('tradingData', 'hasFullAccess', 'user', 'stats'));
+        // Check if this is an AJAX request
+        if ($request->ajax() || $request->has('ajax')) {
+            return view('dashboard.trading-data', compact('tradingData', 'hasFullAccess', 'user', 'stats', 'chartData'))->render();
+        }
+
+        return view('dashboard.trading-data', compact('tradingData', 'hasFullAccess', 'user', 'stats', 'chartData'));
     }
 
     /**
@@ -352,14 +378,102 @@ class DashboardController extends Controller
             abort(403, 'Unauthorized access to security policies');
         }
 
+        // Get security policies and format them for the view
         $policies = SecurityPolicy::orderBy('created_at', 'desc')->get();
+        
+        // Create a consolidated security policy object for the view
+        $securityPolicy = (object) [
+            'password_complexity_enabled' => true,
+            'min_password_length' => 8,
+            'mfa_enabled' => false,
+            'mfa_methods' => [],
+            'session_timeout' => 60,
+            'concurrent_sessions_enabled' => true,
+            'max_concurrent_sessions' => 3,
+            'account_lockout_enabled' => false,
+            'max_login_attempts' => 5,
+            'ip_whitelist_enabled' => false,
+            'allowed_ips' => [],
+            'audit_log_retention_days' => 90,
+        ];
+
+        // Override with actual policy settings if they exist
+        foreach ($policies as $policy) {
+            $settings = $policy->settings ?? [];
+            
+            switch ($policy->policy_name) {
+                case 'password_policy':
+                    $securityPolicy->password_complexity_enabled = $policy->is_enabled;
+                    $securityPolicy->min_password_length = $settings['min_length'] ?? 8;
+                    break;
+                case 'mfa_policy':
+                    $securityPolicy->mfa_enabled = $policy->is_enabled;
+                    $securityPolicy->mfa_methods = $settings['methods'] ?? [];
+                    break;
+                case 'session_policy':
+                    $securityPolicy->session_timeout = $settings['timeout_minutes'] ?? 60;
+                    $securityPolicy->concurrent_sessions_enabled = $policy->is_enabled;
+                    $securityPolicy->max_concurrent_sessions = $settings['max_sessions'] ?? 3;
+                    break;
+                case 'account_lockout_policy':
+                    $securityPolicy->account_lockout_enabled = $policy->is_enabled;
+                    $securityPolicy->max_login_attempts = $settings['max_attempts'] ?? 5;
+                    break;
+                case 'ip_whitelist_policy':
+                    $securityPolicy->ip_whitelist_enabled = $policy->is_enabled;
+                    $securityPolicy->allowed_ips = $settings['allowed_ips'] ?? [];
+                    break;
+                case 'audit_policy':
+                    $securityPolicy->audit_log_retention_days = $settings['retention_days'] ?? 90;
+                    break;
+            }
+        }
+
+        // Calculate security score based on enabled policies
+        $securityScore = 0;
+        $maxScore = 100;
+        
+        // Password complexity (20 points)
+        if ($securityPolicy->password_complexity_enabled) {
+            $securityScore += 20;
+        }
+        
+        // MFA enabled (25 points)
+        if ($securityPolicy->mfa_enabled) {
+            $securityScore += 25;
+        }
+        
+        // Account lockout (15 points)
+        if ($securityPolicy->account_lockout_enabled) {
+            $securityScore += 15;
+        }
+        
+        // Session timeout reasonable (15 points - if <= 120 minutes)
+        if ($securityPolicy->session_timeout <= 120) {
+            $securityScore += 15;
+        }
+        
+        // Concurrent sessions controlled (10 points)
+        if ($securityPolicy->concurrent_sessions_enabled && $securityPolicy->max_concurrent_sessions <= 5) {
+            $securityScore += 10;
+        }
+        
+        // IP whitelist (10 points)
+        if ($securityPolicy->ip_whitelist_enabled) {
+            $securityScore += 10;
+        }
+        
+        // Audit retention (5 points - if >= 30 days)
+        if ($securityPolicy->audit_log_retention_days >= 30) {
+            $securityScore += 5;
+        }
 
         // Check if this is an AJAX request
         if ($request->ajax() || $request->has('ajax')) {
-            return view('dashboard.security-policies', compact('policies', 'user'))->render();
+            return view('dashboard.security-policies', compact('policies', 'securityPolicy', 'securityScore', 'user'))->render();
         }
 
-        return view('dashboard.security-policies', compact('policies', 'user'));
+        return view('dashboard.security-policies', compact('policies', 'securityPolicy', 'securityScore', 'user'));
     }
 
     /**
@@ -405,15 +519,28 @@ class DashboardController extends Controller
 
         $auditLogs = $query->paginate(20);
 
+        // Calculate audit log statistics
+        $statsQuery = AuditLog::query();
+        if ($userRole === 'employee') {
+            $statsQuery->where('wso2_user_id', $user['id']);
+        }
+        
+        $stats = [
+            'success_count' => $statsQuery->where('action', 'like', '%success%')->orWhere('action', 'like', '%login%')->count(),
+            'warning_count' => $statsQuery->where('action', 'like', '%warning%')->orWhere('action', 'like', '%failed%')->count(),
+            'error_count' => $statsQuery->where('action', 'like', '%error%')->orWhere('action', 'like', '%unauthorized%')->count(),
+            'unique_users' => $statsQuery->distinct('wso2_user_id')->count('wso2_user_id'),
+        ];
+
         // Get all users for filter dropdown
         $users = $this->wso2Service->getAllUsers();
 
         // Check if this is an AJAX request
         if ($request->ajax() || $request->has('ajax')) {
-            return view('dashboard.audit-logs', compact('auditLogs', 'user', 'users'))->render();
+            return view('dashboard.audit-logs', compact('auditLogs', 'user', 'users', 'stats'))->render();
         }
 
-        return view('dashboard.audit-logs', compact('auditLogs', 'user', 'users'));
+        return view('dashboard.audit-logs', compact('auditLogs', 'user', 'users', 'stats'));
     }
 
     /**

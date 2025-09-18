@@ -11,11 +11,12 @@ use App\Http\Controllers\AccountController;
 |--------------------------------------------------------------------------
 */
 
-// Redirect root to login
+// Redirect root to login or dashboard
 Route::get('/', function () {
     if (!session()->has('wso2_user_id')) {
         return redirect()->route('auth.login');
     }
+    return redirect()->route('dashboard');
 });
 
 // Authentication Routes (WSO2 only)
@@ -30,6 +31,17 @@ Route::group(['prefix' => 'auth', 'as' => 'auth.'], function () {
     // Logout
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     
+    // Token validation endpoint for testing
+    Route::get('/validate-token', function () {
+        $wso2Service = app(\App\Services\WSO2Service::class);
+        $isValid = $wso2Service->isAccessTokenValid();
+        return response()->json([
+            'valid' => $isValid,
+            'timestamp' => now()->toISOString(),
+            'session_has_token' => !empty(session('wso2.access_token'))
+        ]);
+    })->name('validate.token');
+    
     // Privacy policy
     Route::get('/privacy', [AuthController::class, 'showPrivacy'])->name('privacy');
 });
@@ -38,7 +50,7 @@ Route::group(['prefix' => 'auth', 'as' => 'auth.'], function () {
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 
 // Protected Dashboard Routes
-Route::group([], function () {
+Route::middleware(['wso2.validate'])->group(function () {
     // Debug route to check user role and permissions
     Route::get('/debug-user', function () {
         try {
@@ -125,10 +137,10 @@ Route::group([], function () {
 // Route::middleware(['auth'])->get('/account', [AccountController::class, 'index'])->name('account');
 
 // For backward compatibility and direct access to /account
-Route::get('/account', [AccountController::class, 'index'])->name('account');
+Route::middleware(['wso2.validate'])->get('/account', [AccountController::class, 'index'])->name('account');
 
 // API Routes for AJAX requests
-Route::group(['prefix' => 'api'], function () {
+Route::middleware(['wso2.validate'])->prefix('api')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::put('/user/profile', [AccountController::class, 'updateProfile']);

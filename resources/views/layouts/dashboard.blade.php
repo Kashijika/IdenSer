@@ -174,6 +174,59 @@
             width: 1rem;
             height: 1rem;
         }
+
+        /* Dropdown Styles */
+        .dropdown-toggle {
+            justify-content: space-between;
+        }
+
+        .dropdown-icon {
+            transition: transform 0.2s ease;
+        }
+
+        .dropdown-toggle.open .dropdown-icon {
+            transform: rotate(180deg);
+        }
+
+        .dropdown-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            background: #f8fafc;
+            border-radius: 0.375rem;
+            margin-top: 0.25rem;
+            margin-left: 1rem;
+            overflow: hidden;
+            max-height: 0;
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        .dropdown-menu.open {
+            max-height: 200px;
+            opacity: 1;
+        }
+
+        .dropdown-menu li a {
+            display: block;
+            padding: 0.5rem 0.75rem;
+            color: #6b7280;
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+            border-radius: 0.25rem;
+            margin: 0.125rem;
+        }
+
+        .dropdown-menu li a:hover {
+            background-color: #e5e7eb;
+            color: #374151;
+        }
+
+        .dropdown-menu li a.active {
+            background-color: #1e3a8a;
+            color: white;
+        }
         
         .main-content {
             flex: 1;
@@ -472,13 +525,21 @@
                     </li>
 
                     <li class="nav-item">
-                        <a href="{{ route('account') }}" class="nav-link">
+                        <button class="nav-link dropdown-toggle" onclick="toggleDropdown('account-dropdown')">
                             <svg class="nav-icon" fill="currentColor" viewBox="0 0 20 20">
                                 <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 8a2 2 0 110-4 2 2 0 010 4zM10 18l3-3h-6l3 3z"/>
                                 <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/>
                             </svg>
                             <span>My Account</span>
-                        </a>
+                            <svg class="dropdown-icon" fill="currentColor" viewBox="0 0 20 20" width="12" height="12">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                            </svg>
+                        </button>
+                        <ul class="dropdown-menu" id="account-dropdown">
+                            <li><a href="{{ route('account.overview') }}" class="{{ request()->routeIs('account.overview') ? 'active' : '' }}">Overview</a></li>
+                            <li><a href="{{ route('account.personal-info') }}" class="{{ request()->routeIs('account.personal-info') ? 'active' : '' }}">Personal Info</a></li>
+                            <li><a href="{{ route('account.security') }}" class="{{ request()->routeIs('account.security') ? 'active' : '' }}">Security</a></li>
+                        </ul>
                     </li>
                 </ul>
             </div>
@@ -528,6 +589,34 @@
 
     <!-- Scripts -->
     <script>
+        // Dropdown toggle function
+        function toggleDropdown(dropdownId) {
+            const dropdown = document.getElementById(dropdownId);
+            const toggle = dropdown.previousElementSibling;
+            
+            // Close all other dropdowns
+            document.querySelectorAll('.dropdown-menu.open').forEach(menu => {
+                if (menu.id !== dropdownId) {
+                    menu.classList.remove('open');
+                    menu.previousElementSibling.classList.remove('open');
+                }
+            });
+            
+            // Toggle current dropdown
+            dropdown.classList.toggle('open');
+            toggle.classList.toggle('open');
+        }
+
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.nav-item')) {
+                document.querySelectorAll('.dropdown-menu.open').forEach(menu => {
+                    menu.classList.remove('open');
+                    menu.previousElementSibling.classList.remove('open');
+                });
+            }
+        });
+
         // Common dashboard functionality
         document.addEventListener('DOMContentLoaded', function() {
             // Initialize dashboard navigation
@@ -787,6 +876,9 @@
             }
         }
     </script>
+    
+    <!-- Session Monitor for Cross-App Logout Detection -->
+    <script src="{{ asset('js/session-monitor.js') }}"></script>
     
     @stack('scripts')
 </body>

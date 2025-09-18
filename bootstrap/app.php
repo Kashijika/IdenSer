@@ -20,6 +20,12 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            // WSO2 token validation middleware removed from global web stack
+        ]);
+        
+        // Register alias for route-specific use
+        $middleware->alias([
+            'wso2.validate' => \App\Http\Middleware\ValidateWSO2Token::class,
         ]);
         
     })

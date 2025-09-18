@@ -1,4 +1,4 @@
-@extends('layouts.account')
+@extends('layouts.dashboard')
 
 @section('title', 'Overview - My Account')
 
