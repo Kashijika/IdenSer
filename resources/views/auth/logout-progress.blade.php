@@ -3,36 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Logging out...</title>
+    <title>Logging Out - IdenSer</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #3b82f6 100%);
             margin: 0;
             padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            color: #333;
+            color: white;
+            box-sizing: border-box;
         }
         
         .logout-container {
-            background: white;
-            border-radius: 15px;
-            padding: 40px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
             max-width: 400px;
-            width: 90%;
+            position: relative;
+            box-sizing: border-box;
         }
         
         .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            border: 4px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
+            border-top: 4px solid white;
+            width: 50px;
+            height: 50px;
             animation: spin 1s linear infinite;
             margin: 0 auto 20px;
         }
@@ -42,92 +46,90 @@
             100% { transform: rotate(360deg); }
         }
         
-        .logout-title {
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            color: #333;
+        .message {
+            font-size: 18px;
+            margin-bottom: 10px;
         }
         
-        .logout-message {
-            font-size: 16px;
-            color: #666;
-            margin-bottom: 20px;
-            line-height: 1.5;
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 6px;
-            background-color: #f0f0f0;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-bottom: 15px;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            width: 0%;
-            transition: width 0.3s ease;
-            border-radius: 3px;
-        }
-        
-        .status-text {
+        .sub-message {
             font-size: 14px;
-            color: #888;
-            margin-top: 10px;
+            opacity: 0.8;
         }
         
-        .hidden-iframe {
-            display: none;
-        }
-        
-        .error-message {
-            color: #e74c3c;
-            background: #ffeaea;
-            padding: 15px;
-            border-radius: 8px;
+        .manual-redirect {
             margin-top: 20px;
-            font-size: 14px;
             display: none;
         }
         
-        .manual-logout {
-            background: #667eea;
-            color: white;
+        .btn {
+            background: white;
+            color: #1e40af;
             border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
+            padding: 10px 20px;
+            border-radius: 5px;
             cursor: pointer;
-            transition: background 0.3s ease;
-            margin-top: 15px;
-            display: none;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
         }
         
-        .manual-logout:hover {
-            background: #5a6fd8;
+        .btn:hover {
+            background: #f0f0f0;
         }
     </style>
 </head>
 <body>
     <div class="logout-container">
         <div class="spinner"></div>
-        <h1 class="logout-title">Logging Out</h1>
-        <p class="logout-message">
-            Please wait while we securely log you out from all applications...
-        </p>
+        <div class="message">Logging out from all applications...</div>
+        <div class="sub-message">Please wait while we securely terminate your session.</div>
         
-        <div class="progress-bar">
-            <div class="progress-fill" id="progressFill"></div>
+        <div class="manual-redirect" id="manualRedirect">
+            <p>Taking longer than expected?</p>
+            <a href="{{ $login_url }}" class="btn">Go to Login Page</a>
         </div>
+    </div>
+
+    <!-- Hidden iframe for WSO2 logout -->
+    <iframe id="wso2LogoutFrame" src="{{ $wso2_base_url }}/oidc/logout?post_logout_redirect_uri={{ urlencode($login_url . '?logged_out=1') }}@if($id_token)&id_token_hint={{ $id_token }}@endif" style="display: none;"></iframe>
+
+    <script>
+        let redirectTimer;
+        let manualRedirectTimer;
         
-        <div class="status-text" id="statusText">
-            Initializing global logout process...
-        </div>
+        // Function to redirect to login page
+        function redirectToLogin() {
+            window.location.href = '{{ $login_url }}';
+        }
         
-        <div class="error-message" id="errorMessage">
+        // Show manual redirect option after 10 seconds
+        manualRedirectTimer = setTimeout(function() {
+            document.getElementById('manualRedirect').style.display = 'block';
+        }, 10000);
+        
+        // Automatic redirect after 5 seconds
+        redirectTimer = setTimeout(redirectToLogin, 5000);
+        
+        // Listen for iframe load events (indicates WSO2 logout completed)
+        document.getElementById('wso2LogoutFrame').onload = function() {
+            // WSO2 logout completed, redirect sooner
+            clearTimeout(redirectTimer);
+            setTimeout(redirectToLogin, 2000);
+        };
+        
+        // Fallback: redirect after maximum 15 seconds regardless
+        setTimeout(redirectToLogin, 15000);
+        
+        // Handle page visibility changes (user might close/switch tabs)
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                // User switched tabs, complete logout in background
+                setTimeout(redirectToLogin, 1000);
+            }
+        });
+    </script>
+</body>
+</html>
             Logout process is taking longer than expected. You may need to manually clear your browser data.
         </div>
         

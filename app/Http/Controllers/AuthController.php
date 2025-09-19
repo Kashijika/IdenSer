@@ -243,7 +243,25 @@ class AuthController extends Controller
             'has_refresh_token' => !empty($refreshToken)
         ]);
 
-        // For AJAX requests
+        // Step 5: WSO2 Global Logout - Terminate ALL SSO sessions across applications
+        $wso2LogoutUrl = config('services.wso2.base_url') . '/oidc/logout';
+        
+        // Add id_token_hint if available for better logout handling
+        $logoutParams = [];
+        if ($idToken) {
+            $logoutParams['id_token_hint'] = $idToken;
+        }
+        
+        if (!empty($logoutParams)) {
+            $wso2LogoutUrl .= '?' . http_build_query($logoutParams);
+        }
+        
+        Log::info('Showing logout progress page with WSO2 global logout in background', [
+            'logout_url' => $wso2LogoutUrl,
+            'has_id_token' => !empty($idToken)
+        ]);
+
+        // For AJAX requests - return success
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
@@ -252,9 +270,13 @@ class AuthController extends Controller
             ]);
         }
 
-        // Redirect back to login with logout flag
-        return redirect()->route('auth.login', ['logged_out' => 1])
-                         ->with('success', 'You have been logged out from all applications.');
+        // Show logout progress page that handles WSO2 logout in background
+        return view('auth.logout-progress', [
+            'wso2_logout_url' => $wso2LogoutUrl,
+            'login_url' => route('auth.login', ['logged_out' => 1]),
+            'wso2_base_url' => config('services.wso2.base_url'),
+            'id_token' => $idToken
+        ]);
     }
 
     /**
@@ -262,7 +284,8 @@ class AuthController extends Controller
      */
     private function revokeAllWSO2Tokens($accessToken, $refreshToken)
     {
-        $revokeUrl = config('services.wso2.base_url') . '/oauth2/revoke';
+        // $revokeUrl = config('services.wso2.base_url') . '/oauth2/revoke';
+        $revokeUrl = config('services.wso2.base_url') . '/oidc/logout'; //pakai endpoint logout aja
         $clientId = config('services.wso2.client_id');
         $clientSecret = config('services.wso2.client_secret');
         $success = true;
